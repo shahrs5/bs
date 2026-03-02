@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BullshitBench Explorer</title>
+  <link rel="icon" href="../docs/images/bsbench.png">
   <style>
     :root {
       --bg: #f7f4ec;
@@ -1139,7 +1140,7 @@
     }
 
     .filters-grid {
-      grid-template-columns: minmax(220px, 1.25fr) repeat(4, minmax(130px, 1fr));
+      grid-template-columns: minmax(170px, 0.95fr) minmax(220px, 1.25fr) repeat(4, minmax(130px, 1fr));
       gap: 8px;
     }
 
@@ -1436,6 +1437,10 @@
       <h2>BullshitBench: Filters</h2>
       <div class="grid-3 filters-grid">
         <label>
+          <span>Benchmark Version</span>
+          <select id="datasetVersion"></select>
+        </label>
+        <label>
           <span>Search</span>
           <input id="filterQuery" type="text" placeholder="Model, question id, prompt text...">
         </label>
@@ -1610,13 +1615,15 @@
   </div>
 
   <script>
-    const DEFAULT_PATHS = {
-      responses: "data/latest/responses.jsonl",
-      collectionStats: "data/latest/collection_stats.json",
-      panelSummary: "data/latest/panel_summary.json",
-      aggregateSummary: "data/latest/aggregate_summary.json",
-      aggregateRows: "data/latest/aggregate.jsonl",
-      launchMetadata: "data/latest/model_launch_dates.csv",
+    const DATASET_OPTIONS = {
+      v2: {
+        label: "Benchmark v2 (new)",
+        basePath: "data/v2/latest",
+      },
+      v1: {
+        label: "Benchmark v1 (original)",
+        basePath: "data/latest",
+      },
     };
 
     const CATEGORY_META = {
@@ -1667,10 +1674,13 @@
       cross_domain_concept_stitching: "Cross-Domain Concept Stitching",
       false_granularity: "Fake Precision",
       inverted_nonexistent_dependency: "Invented Dependency Reversal",
+      jargon_soup: "Jargon Soup",
       misapplied_mechanism: "Misapplied Mechanism",
       plausible_nonexistent_framework: "Plausible but Fake Framework",
       reified_metaphor: "Literalized Metaphor",
+      subtle_premise_violation: "Subtle Premise Violation",
       temporal_category_error: "Time/Category Mix-up",
+      wrong_relationship: "Wrong Relationship",
       wrong_unit_of_analysis: "Wrong Unit of Analysis",
     };
 
@@ -1697,11 +1707,14 @@
         direction: "desc",
       },
       launchScatterWidth: 0,
+      datasetKey: "v2",
+      datasetPaths: null,
     };
 
     const el = {};
 
     function cacheElements() {
+      el.datasetVersion = document.getElementById("datasetVersion");
       el.dataState = document.getElementById("dataState");
       el.simpleModelBars = document.getElementById("simpleModelBars");
       el.mainChartOrgGuide = document.getElementById("mainChartOrgGuide");
@@ -1841,15 +1854,45 @@
       return pathname.includes("/viewer/") ? "../" : "";
     }
 
-    function resolvedDefaultPaths() {
+    function normalizeDatasetBasePath(value) {
+      return String(value || "")
+        .trim()
+        .replace(/^\.?\/*/, "")
+        .replace(/\/+$/, "");
+    }
+
+    function datasetFromQuery() {
+      const search = new URLSearchParams(window.location.search || "");
+      const requested = String(search.get("dataset") || "").trim().toLowerCase();
+      return DATASET_OPTIONS[requested] ? requested : "v2";
+    }
+
+    function setDatasetQuery(datasetKey) {
+      const nextKey = DATASET_OPTIONS[datasetKey] ? datasetKey : "v2";
+      const url = new URL(window.location.href);
+      if (nextKey === "v2") {
+        url.searchParams.delete("dataset");
+      } else {
+        url.searchParams.set("dataset", nextKey);
+      }
+      window.history.replaceState({}, "", url);
+    }
+
+    function datasetMeta(datasetKey) {
+      return DATASET_OPTIONS[datasetKey] || DATASET_OPTIONS.v2;
+    }
+
+    function pathsForDataset(datasetKey) {
       const prefix = defaultPathPrefix();
+      const dataset = datasetMeta(datasetKey);
+      const base = normalizeDatasetBasePath(dataset.basePath);
       return {
-        responses: `${prefix}${DEFAULT_PATHS.responses}`,
-        collectionStats: `${prefix}${DEFAULT_PATHS.collectionStats}`,
-        panelSummary: `${prefix}${DEFAULT_PATHS.panelSummary}`,
-        aggregateSummary: `${prefix}${DEFAULT_PATHS.aggregateSummary}`,
-        aggregateRows: `${prefix}${DEFAULT_PATHS.aggregateRows}`,
-        launchMetadata: `${prefix}${DEFAULT_PATHS.launchMetadata}`,
+        responses: `${prefix}${base}/responses.jsonl`,
+        collectionStats: `${prefix}${base}/collection_stats.json`,
+        panelSummary: `${prefix}${base}/panel_summary.json`,
+        aggregateSummary: `${prefix}${base}/aggregate_summary.json`,
+        aggregateRows: `${prefix}${base}/aggregate.jsonl`,
+        launchMetadata: `${prefix}${base}/model_launch_dates.csv`,
       };
     }
 
@@ -1857,6 +1900,20 @@
       if (el.dataState) {
         el.dataState.textContent = message;
       }
+    }
+
+    function initDatasetSelector() {
+      if (!el.datasetVersion) {
+        return;
+      }
+      const options = Object.entries(DATASET_OPTIONS).map(([key, cfg]) => (
+        `<option value="${escapeHtml(key)}">${escapeHtml(String(cfg.label || key))}</option>`
+      ));
+      el.datasetVersion.innerHTML = options.join("");
+      const selected = datasetFromQuery();
+      el.datasetVersion.value = DATASET_OPTIONS[selected] ? selected : "v2";
+      state.datasetKey = el.datasetVersion.value;
+      state.datasetPaths = pathsForDataset(state.datasetKey);
     }
 
     function parseJsonlStrict(text, filename) {
@@ -2353,10 +2410,48 @@
       return "error";
     }
 
+    function consensusScoreBucket(row) {
+      if (!row) {
+        return null;
+      }
+      const status = String(row.status || "").trim();
+      if (status) {
+        if (status !== "ok") {
+          return "error";
+        }
+      } else if (row.error) {
+        return "error";
+      }
+      const score = Number(row.consensus_score);
+      if (!Number.isFinite(score)) {
+        return null;
+      }
+      const clamped = Math.max(0, Math.min(3, score));
+      return Math.floor(clamped + 0.5);
+    }
+
+    function isFullJudgeSelection(chosenJudges) {
+      const availableJudges = [1, 2, 3].filter((judgeIndex) => {
+        const toggle = el[`judge${judgeIndex}Toggle`];
+        return toggle && !toggle.disabled;
+      });
+      if (!availableJudges.length || chosenJudges.length !== availableJudges.length) {
+        return false;
+      }
+      return availableJudges.every((judgeIndex) => chosenJudges.includes(judgeIndex));
+    }
+
     function categoryKey(row) {
       const chosenJudges = selectedJudgeIds();
       if (!chosenJudges.length) {
         return "error";
+      }
+      const consensusBucket = consensusScoreBucket(row);
+      if (consensusBucket === "error") {
+        return "error";
+      }
+      if (isFullJudgeSelection(chosenJudges) && consensusBucket !== null) {
+        return categoryFromScore(consensusBucket);
       }
       const categories = chosenJudges
         .map((judgeIndex) => judgeScoreFromRow(row, judgeIndex))
@@ -2364,6 +2459,9 @@
         .map((score) => categoryFromScore(score));
 
       if (!categories.length) {
+        if (consensusBucket !== null) {
+          return categoryFromScore(consensusBucket);
+        }
         return "error";
       }
       if (categories.length === 1) {
@@ -3017,7 +3115,8 @@
 
       if (!rawPoints.length) {
         el.launchScatterSvg.innerHTML = `<text x="50%" y="52%" text-anchor="middle" fill="#5d726b" font-size="16">No launch-mapped rows found for Anthropic, OpenAI, or Google.</text>`;
-        el.launchScatterMeta.textContent = "Check data/latest/model_launch_dates.csv coverage.";
+        const launchPath = state.datasetPaths?.launchMetadata || "data/v2/latest/model_launch_dates.csv";
+        el.launchScatterMeta.textContent = `Check ${launchPath} coverage.`;
         return;
       }
 
@@ -4390,7 +4489,8 @@
       const scopedRows = applyFilters(state.rows, { ignoreOrgFilter: true });
       const filteredRows = applyFilters(state.rows);
       state.filteredRows = filteredRows;
-      setDataState(`Showing ${filteredRows.length} of ${state.rows.length} rows.`);
+      const datasetLabel = datasetMeta(state.datasetKey).label;
+      setDataState(`${datasetLabel}: showing ${filteredRows.length} of ${state.rows.length} rows.`);
       renderOrgColorKey(scopedRows);
       renderMainChartOrgGuide(scopedRows);
       renderSimpleModelBars(filteredRows);
@@ -4427,9 +4527,18 @@
       renderAll();
     }
 
-    async function loadDefaultData() {
-      const paths = resolvedDefaultPaths();
+    async function loadDatasetData(datasetKey) {
+      const key = DATASET_OPTIONS[datasetKey] ? datasetKey : "v2";
+      const dataset = datasetMeta(key);
+      const paths = pathsForDataset(key);
+      state.datasetKey = key;
+      state.datasetPaths = paths;
+      setDatasetQuery(key);
+      if (el.datasetVersion && el.datasetVersion.value !== key) {
+        el.datasetVersion.value = key;
+      }
       try {
+        setDataState(`Loading ${dataset.label}...`);
         const required = await Promise.all([
           fetchText(paths.responses),
           fetchText(paths.collectionStats),
@@ -4461,11 +4570,11 @@
         };
         ingestData(payload);
         setDataState(
-          `Loaded ${payload.responses.length} responses. `
+          `${dataset.label} loaded: ${payload.responses.length} responses. `
           + `Launch metadata rows: ${payload.launchMetadataRows.length}.`,
         );
       } catch (error) {
-        setDataState(`Could not load benchmark files: ${error.message}`);
+        setDataState(`Could not load ${dataset.label}: ${error.message}`);
       }
     }
 
@@ -4497,6 +4606,12 @@
     }
 
     function bindEvents() {
+      if (el.datasetVersion) {
+        el.datasetVersion.addEventListener("change", () => {
+          const nextKey = String(el.datasetVersion.value || "v2");
+          loadDatasetData(nextKey);
+        });
+      }
       const bindOrgToggle = (container) => {
         if (!container) {
           return;
@@ -4684,10 +4799,11 @@
 
     function bootstrap() {
       cacheElements();
+      initDatasetSelector();
       syncSelectedJudgesFromUI();
       buildScoreFilter();
       bindEvents();
-      loadDefaultData();
+      loadDatasetData(state.datasetKey || datasetFromQuery());
     }
 
     bootstrap();
