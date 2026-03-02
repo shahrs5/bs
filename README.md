@@ -7,11 +7,35 @@ BullshitBench measures whether models detect nonsense, call it out clearly, and 
 
 - Public viewer (stable): https://petergpt.github.io/bullshit-benchmark/viewer/index.html
 - Public viewer (v2-focused): https://petergpt.github.io/bullshit-benchmark/viewer/index.v2.html
-- Updated: 2026-03-01
+- Updated: 2026-03-02
 
-![BullshitBench Results](docs/images/bullshit-benchmark-results.png)
+## Viewer Walkthrough (v2)
 
-![BullshitBench Viewer Chart (Screenshot)](docs/images/viewer-chart-screenshot.png)
+The screenshots below follow the same flow as `viewer/index.v2.html`, starting with the main chart.
+
+### 1. Detection Rate by Model (Main Chart)
+
+Primary leaderboard-style view showing each model's green/amber/red split.
+
+![BullshitBench v2 - Detection Rate by Model](docs/images/v2-detection-rate-by-model.png)
+
+### 2. Detection Rate Over Time
+
+Release-date trend view focused on Anthropic, OpenAI, and Google.
+
+![BullshitBench v2 - Detection Rate Over Time](docs/images/v2-detection-rate-over-time.png)
+
+### 3. Do Newer Models Perform Better?
+
+All-model scatter by release date vs. green rate.
+
+![BullshitBench v2 - Do Newer Models Perform Better](docs/images/v2-do-newer-models-perform-better.png)
+
+### 4. Does Thinking Harder Help?
+
+Reasoning scatter (tokens/cost toggle in the viewer) vs. green rate.
+
+![BullshitBench v2 - Does Thinking Harder Help](docs/images/v2-does-thinking-harder-help.png)
 
 ## Benchmark Scope (v2)
 

@@ -413,6 +413,92 @@
     .heatmap .model-col-header { text-align: left; min-width: 200px; }
     .heat-cell { font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 4px; }
 
+    /* Domain landscape */
+    .domain-insights-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr);
+      margin-top: 10px;
+    }
+    .domain-insight-card {
+      border: 1px solid #d6e0db;
+      border-radius: 12px;
+      background: #fbfdfc;
+      padding: 10px;
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+    }
+    .domain-insight-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .domain-insight-head h3 {
+      margin: 0;
+      font-size: 0.96rem;
+      color: #1f312c;
+    }
+    .domain-avg-bars {
+      display: grid;
+      gap: 8px;
+    }
+    .domain-avg-row {
+      display: grid;
+      grid-template-columns: 90px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+    .domain-avg-row.is-overall {
+      background: #f0f8f4;
+      border-radius: 10px;
+    }
+    .domain-avg-row.is-active .domain-avg-label {
+      color: #165147;
+      font-weight: 700;
+    }
+    .domain-avg-label {
+      font-size: 0.79rem;
+      color: #334742;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .domain-avg-track {
+      position: relative;
+      height: 24px;
+      border: 1px solid #d3ded9;
+      border-radius: 999px;
+      overflow: hidden;
+      display: flex;
+      background: #edf3f0;
+      min-width: 0;
+    }
+    .domain-avg-seg {
+      height: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+    }
+    .domain-avg-seg-label {
+      font-size: 0.67rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1;
+      white-space: nowrap;
+      text-shadow: 0 1px 1px rgba(0,0,0,0.34);
+      padding: 0 4px;
+    }
+    .domain-avg-seg.is-small .domain-avg-seg-label { display: none; }
+    .domain-avg-seg.green { background: var(--green); }
+    .domain-avg-seg.amber { background: var(--amber); }
+    .domain-avg-seg.red { background: var(--red); }
+    .domain-avg-seg.error { background: var(--error); }
+
+
     /* Difficulty bars */
     .diff-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .diff-card {
@@ -911,6 +997,19 @@
       <div id="domainDrilldown"></div>
     </section>
 
+    <section class="panel" id="domainInsightsSection">
+      <h2 data-bench-heading="Domain Landscape">BullshitBench v2: Domain Landscape</h2>
+      <p class="subtle">Detection mix by domain to compare overall vs each domain at a glance.</p>
+      <div class="domain-insights-grid">
+        <div class="domain-insight-card">
+          <div class="domain-insight-head">
+            <h3>Average Detection by Domain</h3>
+          </div>
+          <div id="domainAvgBars" class="domain-avg-bars"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Release Date vs Green Score: All Orgs -->
     <section class="panel">
       <h2 data-bench-heading="Detection Rate Over Time">BullshitBench v2: Detection Rate Over Time</h2>
@@ -1026,6 +1125,7 @@ const BENCHMARK_CONFIGS = {
     embeddedLaunchKey: "BSB_V2_LAUNCH",
     showDomainGroup: true,
     showDomainHeatmap: true,
+    showDomainInsights: true,
     dataSources: [
       {
         name: "Published v2 dataset",
@@ -1050,6 +1150,7 @@ const BENCHMARK_CONFIGS = {
     embeddedLaunchKey: "",
     showDomainGroup: false,
     showDomainHeatmap: false,
+    showDomainInsights: false,
     dataSources: [
       {
         name: "Published v1 dataset",
@@ -1281,8 +1382,10 @@ function applyBenchmarkPresentation() {
   });
   const domainBar = document.getElementById("domainBar");
   const domainSection = document.getElementById("domainHeatmapSection");
+  const domainInsightsSection = document.getElementById("domainInsightsSection");
   if (domainBar) domainBar.classList.toggle("hidden-block", !cfg.showDomainGroup);
   if (domainSection) domainSection.classList.toggle("hidden-block", !cfg.showDomainHeatmap);
+  if (domainInsightsSection) domainInsightsSection.classList.toggle("hidden-block", !cfg.showDomainInsights);
 }
 
 // ====== PARSING ======
@@ -1950,6 +2053,63 @@ function renderDomainHeatmap(filtered) {
       }).join("")}
     </tr>`).join("")}</tbody>`;
 }
+
+function renderDomainInsights() {
+  const avgEl = document.getElementById("domainAvgBars");
+  if (!avgEl) return;
+
+  const selectedDomain = document.getElementById("filterDomainGroup")?.value || "all";
+  const scopeRows = applyFilters(S.rows, { ignoreDomainGroup: true });
+  const domains = DOMAIN_FILTER_ORDER.filter(d => scopeRows.some(r => (r.domain_group || "") === d));
+
+  if (!domains.length) {
+    avgEl.innerHTML = `<p class="small-note" style="margin:0;">No domain data for current filters.</p>`;
+    return;
+  }
+
+  const rows = [
+    {
+      key: "all",
+      label: "Overall",
+      summary: summarize(scopeRows),
+      active: selectedDomain === "all",
+      isOverall: true,
+    },
+    ...domains.map(domain => {
+      const domainRows = scopeRows.filter(r => (r.domain_group || "") === domain);
+      return {
+        key: domain,
+        label: DOMAIN_GROUP_LABELS[domain] || domain,
+        summary: summarize(domainRows),
+        active: selectedDomain === domain,
+        isOverall: false,
+      };
+    }),
+  ];
+
+  const segHtml = (cls, rate) => {
+    const width = Math.max(0, Number(rate) || 0);
+    const small = width < 9.5 ? " is-small" : "";
+    return `<span class="domain-avg-seg ${cls}${small}" style="width:${width.toFixed(3)}%;" title="${cls.charAt(0).toUpperCase() + cls.slice(1)} ${fmtPct(width)}">
+      <span class="domain-avg-seg-label">${fmtPct(width)}</span>
+    </span>`;
+  };
+
+  avgEl.innerHTML = rows.map(s => {
+    const activeClass = s.active ? " is-active" : "";
+    const overallClass = s.isOverall ? " is-overall" : "";
+    return `<div class="domain-avg-row${activeClass}${overallClass}">
+      <div class="domain-avg-label">${esc(s.label)}</div>
+      <div class="domain-avg-track">
+        ${segHtml("green", s.summary.greenRate)}
+        ${segHtml("amber", s.summary.amberRate)}
+        ${segHtml("red", s.summary.redRate)}
+        ${segHtml("error", s.summary.errorRate)}
+      </div>
+    </div>`;
+  }).join("");
+}
+
 // Domain heatmap click handler
 document.addEventListener("click", e => {
   const cell = e.target.closest(".heat-cell-click[data-mk][data-domain]");
@@ -2607,6 +2767,7 @@ function renderLaunchAllOrgs(filtered) {
 
   // End-of-line model + org badges, positioned near each org's last dot.
   const approxTextWidth = (txt, fontSize) => String(txt || "").length * fontSize * 0.56;
+  const rightAlignedLabelEdge = W - 12;
   const orgLabelItems = lineData.map(l => {
     const lastP = lastPointPerOrg.get(l.org);
     const anchorPt = l.lastPt || (lastP ? { x: xFor(lastP.launchDate.getTime()), y: yFor(lastP.greenRate) } : { x: W - mr - 10, y: mt + ph / 2 });
@@ -2623,7 +2784,7 @@ function renderLaunchAllOrgs(filtered) {
     const badgeW = Math.max(62, Math.ceil(approxTextWidth(badgeText, badgeFont) + badgePadX * 2));
     const gap = 12;
     const groupW = mainW + gap + badgeW;
-    const desiredX = Math.max(ml + 6, Math.min(anchorPt.x + 16, W - groupW - 8));
+    const desiredX = Math.max(ml + 6, rightAlignedLabelEdge - groupW);
     return {
       org: l.org,
       color: l.color,
@@ -2663,10 +2824,10 @@ function renderLaunchAllOrgs(filtered) {
   }
 
   const orgEndLabels = orgLabelItems.map(item => {
-    const connectorX = Math.max(item.lastPt.x + 8, item.x - 8);
+    const badgeX = rightAlignedLabelEdge - item.badgeW;
+    const modelX = badgeX - item.gap - approxTextWidth(item.mainLabel, item.modelFont);
+    const connectorX = Math.max(item.lastPt.x + 8, modelX - 8);
     const connector = `<line x1="${item.lastPt.x.toFixed(1)}" y1="${item.lastPt.y.toFixed(1)}" x2="${connectorX.toFixed(1)}" y2="${(item.y - 3).toFixed(1)}" stroke="${esc(item.color)}" stroke-opacity="0.42" stroke-width="1.1"/>`;
-    const modelX = item.x;
-    const badgeX = modelX + approxTextWidth(item.mainLabel, item.modelFont) + item.gap;
     const badgeY = item.y - item.badgeH / 2;
     const badgeRect = `<rect x="${badgeX.toFixed(1)}" y="${badgeY.toFixed(1)}" width="${item.badgeW.toFixed(1)}" height="${item.badgeH}" rx="${item.badgeR}" ry="${item.badgeR}" fill="${esc(item.color)}" fill-opacity="0.11" stroke="${esc(item.color)}" stroke-opacity="0.44" stroke-width="1"/>`;
     const badgeText = `<text x="${(badgeX + item.badgeW/2).toFixed(1)}" y="${item.y.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${esc(item.color)}" font-size="${item.badgeFont}" font-weight="700" letter-spacing="0.35">${esc(item.badgeText)}</text>`;
@@ -3025,6 +3186,7 @@ function renderAll() {
   renderModelBars(filtered);
   renderDrilldown(filtered);
   if (cfg.showDomainHeatmap) renderDomainHeatmap(filtered);
+  if (cfg.showDomainInsights) renderDomainInsights();
   renderDifficultyBreakdown(filtered);
   renderLaunchAllOrgs(filtered);
   renderAllModelsScatter(filtered);
