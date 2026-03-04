@@ -2,6 +2,19 @@
 
 All notable benchmark, data, and viewer changes are tracked in this file.
 
+## [2.0.1] - 2026-03-04
+
+### Added
+- Added benchmark runs for `openai/gpt-5.3-chat` and `google/gemini-3.1-flash-lite-preview`.
+
+### Changed
+- Set launch date metadata for both models to `2026-03-04` and synced to:
+  - `data/model_metadata/model_launch_dates.csv`
+  - `data/latest/model_launch_dates.csv`
+  - `data/v2/latest/model_launch_dates.csv`
+- Updated `data/latest/leaderboard_with_launch.csv` and `data/v2/latest/leaderboard_with_launch.csv` to show the new launch date and model age (`0`) for both models.
+- Updated [viewer/index.v2.html](viewer/index.v2.html) launch metadata loading to merge embedded rows with CSV rows and fetch metadata with `cache: "no-store"` so new model dates reliably appear in all launch charts.
+
 ## [2.0.0] - 2026-03-01
 
 ### Highlights

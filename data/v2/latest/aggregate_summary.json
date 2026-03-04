@@ -738,6 +738,41 @@
       "run_average_stddev": null
     },
     {
+      "model": "openai/gpt-5.3-chat@reasoning=default",
+      "count": 100,
+      "scored_count": 100,
+      "nonsense_count": 100,
+      "control_count": 0,
+      "score_0": 31,
+      "score_1": 29,
+      "score_2": 40,
+      "score_3": 0,
+      "avg_score": 1.06,
+      "detection_rate_score_2": 0.4,
+      "full_engagement_rate_score_0": 0.31,
+      "control_correct_rate_score_3": null,
+      "error_count": 0,
+      "technique_breakdown": {
+        "authoritative_framing": 1.037,
+        "confident_extrapolation": 0.8333,
+        "cross_domain_stitching": 0.4667,
+        "fabricated_authority": 1.697,
+        "false_granularity": 1.4445,
+        "misapplied_mechanism": 1.0769,
+        "nested_nonsense": 0.7619,
+        "plausible_nonexistent_framework": 1.125,
+        "reified_metaphor": 1.4445,
+        "specificity_trap": 0.4167,
+        "sunk_cost_framing": 0.5238,
+        "temporal_category_error": 1.5555,
+        "wrong_unit_of_analysis": 1.1333
+      },
+      "run_average_scores": {
+        "1": 1.06
+      },
+      "run_average_stddev": null
+    },
+    {
       "model": "openai/gpt-5.1-chat@reasoning=default",
       "count": 100,
       "scored_count": 100,
@@ -1963,6 +1998,41 @@
       "run_average_stddev": null
     },
     {
+      "model": "google/gemini-3.1-flash-lite-preview@reasoning=default",
+      "count": 100,
+      "scored_count": 100,
+      "nonsense_count": 100,
+      "control_count": 0,
+      "score_0": 74,
+      "score_1": 15,
+      "score_2": 11,
+      "score_3": 0,
+      "avg_score": 0.4033,
+      "detection_rate_score_2": 0.11,
+      "full_engagement_rate_score_0": 0.74,
+      "control_correct_rate_score_3": null,
+      "error_count": 0,
+      "technique_breakdown": {
+        "authoritative_framing": 0.037,
+        "confident_extrapolation": 0.5833,
+        "cross_domain_stitching": 0.0,
+        "fabricated_authority": 1.0,
+        "false_granularity": 0.5,
+        "misapplied_mechanism": 0.4615,
+        "nested_nonsense": 0.5238,
+        "plausible_nonexistent_framework": 0.1042,
+        "reified_metaphor": 0.0,
+        "specificity_trap": 0.0833,
+        "sunk_cost_framing": 0.0,
+        "temporal_category_error": 1.0,
+        "wrong_unit_of_analysis": 1.1333
+      },
+      "run_average_scores": {
+        "1": 0.4033
+      },
+      "run_average_stddev": null
+    },
+    {
       "model": "xiaomi/mimo-v2-flash@reasoning=high",
       "count": 100,
       "scored_count": 100,
@@ -2563,29 +2633,29 @@
       {
         "judge_i": 1,
         "judge_j": 2,
-        "compared_rows": 7300,
-        "agreements": 5973,
-        "agreement_rate": 0.818219
+        "compared_rows": 7500,
+        "agreements": 6141,
+        "agreement_rate": 0.8188
       },
       {
         "judge_i": 1,
         "judge_j": 3,
-        "compared_rows": 7300,
-        "agreements": 5882,
-        "agreement_rate": 0.805753
+        "compared_rows": 7500,
+        "agreements": 6053,
+        "agreement_rate": 0.807067
       },
       {
         "judge_i": 2,
         "judge_j": 3,
-        "compared_rows": 7300,
-        "agreements": 5679,
-        "agreement_rate": 0.777945
+        "compared_rows": 7500,
+        "agreements": 5842,
+        "agreement_rate": 0.778933
       }
     ],
-    "average_pairwise_agreement": 0.800639,
-    "krippendorff_alpha_ordinal": 0.798984
+    "average_pairwise_agreement": 0.8016,
+    "krippendorff_alpha_ordinal": 0.79975
   },
-  "total_records": 7300,
+  "total_records": 7500,
   "total_error_records": 0,
-  "total_scored_records": 7300
+  "total_scored_records": 7500
 }

@@ -231,6 +231,12 @@
       padding: 8px 10px;
     }
 
+    .ov-row.is-selected {
+      border-color: var(--accent);
+      background: #edf6f2;
+      box-shadow: inset 0 0 0 1px rgba(26, 115, 99, 0.18);
+    }
+
     .ov-rank {
       text-align: right;
       font-weight: 700;
@@ -249,6 +255,16 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .ov-model-toggle {
+      cursor: pointer;
+    }
+
+    .ov-model-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
     }
 
     .ov-model-sub {
@@ -685,6 +701,7 @@
 
   <script>
     const DATA = __REPORT_PAYLOAD__;
+    const selectedOverviewModels = new Set();
 
     const byId = (id) => document.getElementById(id);
 
@@ -989,6 +1006,7 @@
         byId("overviewChart").innerHTML = '<div class="empty">No models match current overview controls.</div>';
       } else {
         byId("overviewChart").innerHTML = sorted.map((stats, index) => {
+          const isSelected = selectedOverviewModels.has(stats.model);
           const metricRate =
             rankBy === "missed"
               ? stats.missedRate
@@ -1008,10 +1026,17 @@
                   : `correct ${fmtPct(stats.correctRate)}`;
 
           return `
-            <div class="ov-row">
+            <div class="ov-row ${isSelected ? "is-selected" : ""}">
               <div class="ov-rank">${index + 1}</div>
               <div class="ov-model">
-                <div class="ov-model-main" title="${escapeHtml(stats.model)}">${escapeHtml(stats.modelName)}</div>
+                <div
+                  class="ov-model-main ov-model-toggle"
+                  role="button"
+                  tabindex="0"
+                  aria-pressed="${isSelected ? "true" : "false"}"
+                  data-model="${escapeHtml(stats.model)}"
+                  title="${escapeHtml(stats.model)}"
+                >${escapeHtml(stats.modelName)}</div>
                 <div class="ov-model-sub">${escapeHtml(stats.modelOrg)} | reasoning ${escapeHtml(stats.reasoning)} | q ${stats.questionCount} | run ${stats.runCount}</div>
               </div>
               <div class="ov-bar" title="${escapeHtml(metricText)}">
@@ -1049,6 +1074,33 @@
         : '<div class="empty">No pairwise reliability rows.</div>';
 
       byId("reliabilityWrap").innerHTML = `<div>${left}</div><div>${right}</div>`;
+    }
+
+    function toggleOverviewSelection(model) {
+      const key = String(model || "").trim();
+      if (!key) return;
+      if (selectedOverviewModels.has(key)) selectedOverviewModels.delete(key);
+      else selectedOverviewModels.add(key);
+    }
+
+    function bindOverviewSelectionEvents(rows) {
+      const chart = byId("overviewChart");
+
+      chart.addEventListener("click", (event) => {
+        const target = event.target.closest(".ov-model-toggle");
+        if (!target || !chart.contains(target)) return;
+        toggleOverviewSelection(target.dataset.model);
+        renderOverview(rows);
+      });
+
+      chart.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const target = event.target.closest(".ov-model-toggle");
+        if (!target || !chart.contains(target)) return;
+        event.preventDefault();
+        toggleOverviewSelection(target.dataset.model);
+        renderOverview(rows);
+      });
     }
 
     function getViewerFilters() {
@@ -1375,6 +1427,7 @@
       populateOverviewFilters(rows);
       populateViewerFilters(rows);
       bindViewerFilterEvents();
+      bindOverviewSelectionEvents(rows);
       renderOverview(rows);
       renderViewer();
       renderErrors();

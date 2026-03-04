@@ -1,6 +1,6 @@
 {
   "panel_id": "run_v2_latest146_claude_only_20260301_015128_panel",
-  "timestamp_utc": "2026-03-02T16:54:52.614661+00:00",
+  "timestamp_utc": "2026-03-03T23:40:22.465229+00:00",
   "panel_mode": "full",
   "judge_models": [
     "anthropic/claude-sonnet-4.6",
@@ -17,15 +17,16 @@
   "parallelism": 12,
   "primary_judges_max_inflight": 36,
   "grade_dirs_for_aggregate": [],
-  "disagreement_count": 1327,
-  "disagreement_rate": 0.1818,
+  "disagreement_count": 1359,
+  "disagreement_rate": 0.1812,
   "consensus_method": "mean",
   "fail_on_error": false,
   "publish_mode": "supplemental",
   "source_panels": [
     "run_v2_latest146_claude_only_20260301_015128_panel",
-    "run_v2_gpt52chat_20260302_1622_panel"
+    "run_v2_gpt52chat_20260302_1622_panel",
+    "run_v2_gpt53chat_gemini31flashlite_20260303_225638_panel"
   ],
   "execution_mode": "supplemental_merge",
-  "notes": "Supplemental publish appended panel run_v2_gpt52chat_20260302_1622_panel."
+  "notes": "Supplemental publish appended panel run_v2_gpt52chat_20260302_1622_panel. Supplemental publish appended panel run_v2_gpt53chat_gemini31flashlite_20260303_225638_panel."
 }

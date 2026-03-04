@@ -284,7 +284,6 @@
     .dot.score1 { background: var(--amber); }
     .dot.score2 { background: var(--green); }
     .dot.error { background: var(--error); }
-
     /* Org chips */
     .org-dot {
       width: 9px; height: 9px; border-radius: 50%; display: inline-block;
@@ -318,6 +317,12 @@
       grid-template-columns: 34px minmax(170px, 260px) 1fr;
       grid-template-areas: "rank name bar";
       gap: 8px; align-items: center;
+      border-radius: 10px;
+      padding: 3px 6px;
+    }
+    .stack-row.row-selected {
+      background: #eaf5f1;
+      box-shadow: inset 0 0 0 1px #9dcabf;
     }
     .stack-row.is-focused-org .name {
       color: #1d4037;
@@ -331,6 +336,16 @@
     .stack-rank { grid-area: rank; text-align: right; font-size: 0.8rem; font-weight: 700; color: #5b6c66; }
     .stack-row .name { grid-area: name; }
     .stack-row .name.main-chart-name { display: inline-flex; align-items: center; gap: 7px; }
+    .stack-row .name.main-chart-name.main-chart-name-toggle {
+      cursor: pointer;
+      user-select: none;
+      border-radius: 6px;
+      padding: 1px 2px;
+    }
+    .stack-row .name.main-chart-name.main-chart-name-toggle:focus-visible {
+      outline: 2px solid #1e7e6c;
+      outline-offset: 2px;
+    }
     .stack-row .stack-track { grid-area: bar; }
     .model-avg-summary {
       margin: 4px 0 8px;
@@ -1235,14 +1250,13 @@ const TECHNIQUE_LABELS = {
   confident_extrapolation: "Confident Extrapolation",
   nested_nonsense: "Nested Nonsense",
 };
-
 // ====== STATE ======
 const S = {
   benchmarkVersion: benchmarkVersionFromUrl(),
   benchmarkMeta: null,
   rows: [], filteredRows: [], responses: [], aggregateRows: [],
   questionMap: new Map(), usageByModel: new Map(),
-  hiddenModels: new Set(), selectedJudges: new Set([1,2,3]),
+  hiddenModels: new Set(), selectedMainChartModels: new Set(), selectedJudges: new Set([1,2,3]),
   modelChartFocusOrg: "all",
   reasoningScatterMode: "tokens",
   topVariantsOnly: false,
@@ -1432,7 +1446,7 @@ function parseCsv(text) {
 }
 
 async function fetchTextRequired(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.text();
 }
@@ -1444,7 +1458,7 @@ async function fetchJsonRequired(url) {
 
 async function fetchTextOptional(url) {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return "";
     return await res.text();
   } catch (_err) {
@@ -1716,27 +1730,28 @@ async function loadData() {
     });
     S.usageByModel = modelUsage;
 
-    // Load launch date metadata
+    // Load launch date metadata.
+    // Merge embedded launch rows with CSV launch metadata so local file updates
+    // (e.g., manual date fixes) are always reflected in charts.
     S.launchByModel = new Map();
-    // Try embedded global first, then CSV fetch
     const embeddedLaunch = cfg.embeddedLaunchKey ? globalThis[cfg.embeddedLaunchKey] : null;
     if (Array.isArray(embeddedLaunch) && embeddedLaunch.length) {
       embeddedLaunch.forEach(lr => {
         const mid = String(lr.model_id || "").trim();
         if (mid) S.launchByModel.set(mid, lr);
       });
-    } else {
-      let launchText = loaded.launchText || "";
-      if (!launchText) {
-        launchText = await fetchTextOptional(cfg.launchFallbackPath);
-      }
-      if (launchText) {
-        const launchRows = parseCsv(launchText);
-        launchRows.forEach(lr => {
-          const mid = String(lr.model_id || "").trim();
-          if (mid) S.launchByModel.set(mid, lr);
-        });
-      }
+    }
+
+    let launchText = loaded.launchText || "";
+    if (!launchText) {
+      launchText = await fetchTextOptional(cfg.launchFallbackPath);
+    }
+    if (launchText) {
+      const launchRows = parseCsv(launchText);
+      launchRows.forEach(lr => {
+        const mid = String(lr.model_id || "").trim();
+        if (mid) S.launchByModel.set(mid, lr);
+      });
     }
 
     el.textContent = `Loaded ${S.rows.length} rows from ${loaded.source.name} (${loaded.mode}, ${cfg.key})`;
@@ -1961,7 +1976,12 @@ function renderModelBars(modelChartRows) {
   const byModel = groupBy(modelChartRows, modelKey);
   const rows = [...byModel.entries()].map(([k,modelRows])=>{
     const s=summarize(modelRows), sample=modelRows[0]||{};
-    return { key:k, label:prettyModel(sample), org:modelOrg(sample), ...s };
+    return {
+      key:k,
+      label:prettyModel(sample),
+      org:modelOrg(sample),
+      ...s,
+    };
   });
   rows.sort((a,b)=>
     (b.greenRate-a.greenRate) ||
@@ -1969,6 +1989,9 @@ function renderModelBars(modelChartRows) {
     (a.redRate-b.redRate) ||
     a.label.localeCompare(b.label)
   );
+  rows.forEach((row, idx) => {
+    row.rank = idx + 1;
+  });
   const summaryEl = document.getElementById("modelAvgSummary");
   if (summaryEl) {
     const overall = summarize(modelChartRows);
@@ -1995,10 +2018,12 @@ function renderModelBars(modelChartRows) {
     const gs=sel?.mk===r.key&&sel?.cat==="green"?" selected":"";
     const as=sel?.mk===r.key&&sel?.cat==="amber"?" selected":"";
     const rs=sel?.mk===r.key&&sel?.cat==="red"?" selected":"";
+    const isRowSelected=S.selectedMainChartModels.has(r.key);
+    const rowSelectedClass=isRowSelected?" row-selected":"";
     const focusClass = focusOrg==="all" ? "" : (r.org===focusOrg ? " is-focused-org" : " is-unfocused-org");
-    return `<div class="stack-row${focusClass}">
+    return `<div class="stack-row${focusClass}${rowSelectedClass}">
       <div class="stack-rank">${i+1}</div>
-      <div class="name main-chart-name"><span class="org-dot" style="background:${orgColor(r.org)};"></span><span>${esc(r.label)}</span></div>
+      <div class="name main-chart-name main-chart-name-toggle" role="button" tabindex="0" aria-pressed="${isRowSelected ? "true" : "false"}" data-mk="${esc(r.key)}"><span class="org-dot" style="background:${orgColor(r.org)};"></span><span>${esc(r.label)}</span></div>
       <div class="stack-track">
         <span class="stack-seg green${gs}" data-mk="${esc(r.key)}" data-cat="green" style="width:${r.greenRate.toFixed(3)}%;" title="Green ${r.greenRate.toFixed(1)}%"><span class="seg-label">${esc(segLabel(r.greenRate))}</span></span>
         <span class="stack-seg amber${as}" data-mk="${esc(r.key)}" data-cat="amber" style="width:${r.amberRate.toFixed(3)}%;" title="Amber ${r.amberRate.toFixed(1)}%"><span class="seg-label">${esc(segLabel(r.amberRate))}</span></span>
@@ -3392,12 +3417,38 @@ function bindEvents() {
   });
 
   // Chart drilldown
+  const toggleMainChartModelSelection = (mk) => {
+    const key = String(mk || "");
+    if (!key) return;
+    if (S.selectedMainChartModels.has(key)) S.selectedMainChartModels.delete(key);
+    else S.selectedMainChartModels.add(key);
+  };
   document.getElementById("modelBars").addEventListener("click", e=>{
+    if (!(e.target instanceof Element)) return;
+    const nameToggle=e.target.closest(".main-chart-name-toggle[data-mk]");
+    if(nameToggle) {
+      const mk=nameToggle.getAttribute("data-mk");
+      if(!mk) return;
+      toggleMainChartModelSelection(mk);
+      renderAll();
+      return;
+    }
     const seg=e.target.closest(".stack-seg[data-mk][data-cat]");
     if(!seg) return;
     const mk=seg.getAttribute("data-mk"), cat=seg.getAttribute("data-cat");
     if(S.drilldown?.mk===mk&&S.drilldown?.cat===cat) S.drilldown=null;
     else S.drilldown={mk,cat};
+    renderAll();
+  });
+  document.getElementById("modelBars").addEventListener("keydown", e=>{
+    if (!(e.target instanceof Element)) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const nameToggle=e.target.closest(".main-chart-name-toggle[data-mk]");
+    if(!nameToggle) return;
+    e.preventDefault();
+    const mk=nameToggle.getAttribute("data-mk");
+    if(!mk) return;
+    toggleMainChartModelSelection(mk);
     renderAll();
   });
   document.getElementById("clearDrilldownBtn").addEventListener("click",()=>{ S.drilldown=null; renderAll(); });

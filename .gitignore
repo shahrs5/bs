@@ -7,3 +7,11 @@ share/
 tmp_*.json
 *.zip
 *_report.html
+
+# Local experiment outputs / previews (not for GitHub)
+config.v1.gpt-5.2-chat.json
+config.v2.gpt-5.2-chat.json
+data/v1/
+data/model_metadata/open_source_params_sidecar.csv
+readme.preview.html
+drafts/*.html

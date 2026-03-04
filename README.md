@@ -6,7 +6,16 @@
 BullshitBench measures whether models detect nonsense, call it out clearly, and avoid confidently continuing with invalid assumptions.
 
 - Public viewer (latest): https://petergpt.github.io/bullshit-benchmark/viewer/index.v2.html
-- Updated: 2026-03-02
+- Updated: 2026-03-04
+
+## Latest Changelog Entry (2026-03-04)
+
+- Added benchmark runs for:
+  - `openai/gpt-5.3-chat`
+  - `google/gemini-3.1-flash-lite-preview`
+- Set launch date metadata for both models to `2026-03-04` (today) and propagated it across v1/v2 launch metadata and leaderboard launch views.
+- Updated `viewer/index.v2.html` launch-metadata loading to merge embedded + CSV launch rows and fetch with `cache: "no-store"` so the newest launch dates always render in charts.
+- Full details: [CHANGELOG.md](CHANGELOG.md)
 
 ## v2 Changelog Highlights
 
