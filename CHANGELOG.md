@@ -2,6 +2,18 @@
 
 All notable benchmark, data, and viewer changes are tracked in this file.
 
+## [2.0.2] - 2026-03-05
+
+### Added
+- Added provider-aware benchmark routing so collect/grade flows can target `openrouter` or `openai` per model via `collect.model_providers` and `grade.model_providers`.
+- Added published v1 and v2 benchmark results for `openai/gpt-5.4@reasoning=none` and `openai/gpt-5.4@reasoning=xhigh`.
+
+### Changed
+- Updated `config.json` and `config.v2.json` to include `openai/gpt-5.4` with a reasoning sweep of `none` and `xhigh`, routed through OpenRouter by default.
+- Updated benchmark/docs examples and sample configs to document provider routing and the optional OpenAI project/organization headers.
+- Refreshed published viewer datasets in `data/latest/*` and `data/v2/latest/*` so [viewer/index.v2.html](viewer/index.v2.html) shows the new GPT-5.4 rows for both benchmark versions.
+- Collection and grading now store raw provider payloads by default to preserve routing/debug metadata in published run artifacts.
+
 ## [2.0.1] - 2026-03-04
 
 ### Added

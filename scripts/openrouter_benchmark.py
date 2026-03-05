@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two-step benchmark runner for OpenRouter.
+"""Two-step benchmark runner for OpenRouter/OpenAI providers.
 
 Step 1 (collect):
   Query each model independently for each question, with completely stateless
@@ -14,6 +14,7 @@ Step 2 (grade):
 from __future__ import annotations
 
 import argparse
+import copy
 import concurrent.futures
 import csv
 import datetime as dt
@@ -59,6 +60,58 @@ REASONING_EFFORT_CLI_CHOICES: tuple[str, ...] = (
     "high",
     "xhigh",
 )
+
+MODEL_PROVIDER_ALIASES: dict[str, str] = {
+    "openrouter": "openrouter",
+    "or": "openrouter",
+    "openai": "openai",
+}
+
+MODEL_PROVIDER_VALUES: tuple[str, ...] = (
+    "openrouter",
+    "openai",
+)
+
+DEFAULT_MODEL_PROVIDER = "openrouter"
+
+# Code-level aliases for internal OpenAI model IDs that should be benchmarked
+# under public-facing display names.
+OPENAI_BENCHMARK_MODEL_PROFILES: dict[str, dict[str, Any]] = {
+    "gpt-5.4": {
+        "request_model": "galapagos-alpha",
+        "display_name": "gpt-5.4",
+        "model_row": "gpt-5.4",
+        "request_overrides": {
+            "text": {
+                "format": {"type": "text"},
+                "verbosity": "medium",
+            },
+            "reasoning": {
+                "effort": "none",
+                "summary": "detailed",
+            },
+            "tools": [],
+            "store": True,
+        },
+    },
+    "gpt-5.4-xhigh": {
+        "request_model": "galapagos-alpha",
+        "display_name": "gpt-5.4-xhigh",
+        "model_row": "gpt-5.4-xhigh",
+        "request_overrides": {
+            "text": {
+                "format": {"type": "text"},
+                "verbosity": "medium",
+            },
+            "reasoning": {
+                "effort": "xhigh",
+                "summary": "detailed",
+            },
+            "tools": [],
+            "store": True,
+        },
+    },
+}
 
 DEFAULT_JUDGE_SYSTEM_PROMPT = (
     "You are grading whether an AI model's response would cause the user to "
@@ -213,6 +266,7 @@ COLLECT_DEFAULTS: dict[str, Any] = {
     "questions": "questions.json",
     "models": "",
     "models_file": "",
+    "model_providers": "",
     "output_dir": "runs",
     "run_id": "",
     "num_runs": 1,
@@ -231,7 +285,7 @@ COLLECT_DEFAULTS: dict[str, Any] = {
     "response_reasoning_effort": "off",
     "model_reasoning_efforts": "",
     "store_request_messages": False,
-    "store_response_raw": False,
+    "store_response_raw": True,
     "shuffle_tasks": False,
     "seed": 42,
     "rate_limit_requeue": True,
@@ -249,6 +303,7 @@ COLLECT_DEFAULTS: dict[str, Any] = {
 GRADE_DEFAULTS: dict[str, Any] = {
     "responses_file": "",
     "judge_model": "",
+    "model_providers": "",
     "output_dir": "",
     "grade_id": "",
     "parallelism": 4,
@@ -256,7 +311,7 @@ GRADE_DEFAULTS: dict[str, Any] = {
     "judge_reasoning_effort": "off",
     "judge_max_tokens": 0,
     "judge_output_retries": 2,
-    "store_judge_response_raw": False,
+    "store_judge_response_raw": True,
     "pause_seconds": 0.0,
     "retries": 3,
     "timeout_seconds": 120,
@@ -272,6 +327,7 @@ GRADE_DEFAULTS: dict[str, Any] = {
 GRADE_PANEL_DEFAULTS: dict[str, Any] = {
     "responses_file": "",
     "judge_models": "",
+    "model_providers": "",
     "tiebreaker_model": "",
     "panel_mode": "full",
     "consensus_method": "mean",
@@ -283,7 +339,7 @@ GRADE_PANEL_DEFAULTS: dict[str, Any] = {
     "judge_reasoning_effort": "off",
     "judge_max_tokens": 0,
     "judge_output_retries": 2,
-    "store_judge_response_raw": False,
+    "store_judge_response_raw": True,
     "pause_seconds": 0.0,
     "retries": 3,
     "timeout_seconds": 120,
@@ -380,6 +436,14 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--questions", default="questions.json")
     collect.add_argument("--models", default="")
     collect.add_argument("--models-file", default="")
+    collect.add_argument(
+        "--model-providers",
+        default="",
+        help=(
+            "Optional JSON object mapping model IDs (or wildcard patterns like "
+            "'*' and 'openai/*') to provider names (openrouter/openai)."
+        ),
+    )
     collect.add_argument("--config", default="config.json")
     collect.add_argument("--output-dir", default="runs")
     collect.add_argument(
@@ -397,7 +461,7 @@ def parse_args() -> argparse.Namespace:
         "--parallelism",
         type=int,
         default=4,
-        help="Concurrent OpenRouter calls during collection.",
+        help="Concurrent model API calls during collection.",
     )
     collect.add_argument(
         "--max-inflight-per-model",
@@ -456,7 +520,14 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument(
         "--store-response-raw",
         action="store_true",
-        help="Store raw provider payload in responses.jsonl (off by default to reduce leakage).",
+        default=True,
+        help="Store raw provider payload in responses.jsonl (default: enabled).",
+    )
+    collect.add_argument(
+        "--no-store-response-raw",
+        dest="store_response_raw",
+        action="store_false",
+        help="Disable raw provider payload storage in responses.jsonl.",
     )
     collect.add_argument(
         "--shuffle-tasks",
@@ -541,6 +612,15 @@ def parse_args() -> argparse.Namespace:
         help="Path to responses.jsonl from a collect run.",
     )
     grade.add_argument("--judge-model", default="")
+    grade.add_argument(
+        "--model-providers",
+        default="",
+        help=(
+            "Optional JSON object mapping model IDs (or wildcard patterns like "
+            "'*' and 'openai/*') to provider names (openrouter/openai). "
+            "Used for judge routing."
+        ),
+    )
     grade.add_argument("--config", default="config.json")
     grade.add_argument("--output-dir", default="")
     grade.add_argument(
@@ -579,7 +659,14 @@ def parse_args() -> argparse.Namespace:
     grade.add_argument(
         "--store-judge-response-raw",
         action="store_true",
-        help="Store raw judge provider payload in grades.jsonl (off by default).",
+        default=True,
+        help="Store raw judge provider payload in grades.jsonl (default: enabled).",
+    )
+    grade.add_argument(
+        "--no-store-judge-response-raw",
+        dest="store_judge_response_raw",
+        action="store_false",
+        help="Disable raw judge provider payload storage in grades.jsonl.",
     )
     grade.add_argument("--pause-seconds", type=float, default=0.0)
     grade.add_argument(
@@ -644,6 +731,15 @@ def parse_args() -> argparse.Namespace:
         "--judge-models",
         default="",
         help="Comma-separated judge models.",
+    )
+    grade_panel.add_argument(
+        "--model-providers",
+        default="",
+        help=(
+            "Optional JSON object mapping model IDs (or wildcard patterns like "
+            "'*' and 'openai/*') to provider names (openrouter/openai). "
+            "Used for judge routing."
+        ),
     )
     grade_panel.add_argument(
         "--tiebreaker-model",
@@ -718,7 +814,14 @@ def parse_args() -> argparse.Namespace:
     grade_panel.add_argument(
         "--store-judge-response-raw",
         action="store_true",
-        help="Store raw judge provider payload in grades.jsonl (off by default).",
+        default=True,
+        help="Store raw judge provider payload in grades.jsonl (default: enabled).",
+    )
+    grade_panel.add_argument(
+        "--no-store-judge-response-raw",
+        dest="store_judge_response_raw",
+        action="store_false",
+        help="Disable raw judge provider payload storage in grades.jsonl.",
     )
     grade_panel.add_argument("--pause-seconds", type=float, default=0.0)
     grade_panel.add_argument(
@@ -886,21 +989,134 @@ def parse_model_reasoning_efforts(raw_value: Any) -> dict[str, list[str]]:
     return result
 
 
+def normalize_model_provider(value: Any, *, field_name: str) -> str:
+    cleaned = str(value).strip().lower()
+    cleaned = MODEL_PROVIDER_ALIASES.get(cleaned, cleaned)
+    if cleaned not in MODEL_PROVIDER_VALUES:
+        allowed = ", ".join(sorted(MODEL_PROVIDER_VALUES))
+        raise ValueError(f"{field_name} must be one of: {allowed}")
+    return cleaned
+
+
+def parse_model_providers(raw_value: Any, *, field_name: str) -> dict[str, str]:
+    if raw_value in ("", None):
+        return {}
+
+    parsed: Any
+    if isinstance(raw_value, str):
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{field_name} must be a JSON object string.") from exc
+    elif isinstance(raw_value, dict):
+        parsed = raw_value
+    else:
+        raise ValueError(
+            f"{field_name} must be empty, a JSON object string, or a JSON object."
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{field_name} must decode to a JSON object.")
+
+    providers: dict[str, str] = {}
+    for raw_model, raw_provider in parsed.items():
+        model_key = str(raw_model).strip()
+        if not model_key:
+            raise ValueError(f"{field_name} contains an empty model key.")
+        providers[model_key] = normalize_model_provider(
+            raw_provider,
+            field_name=f"{field_name} provider for model '{model_key}'",
+        )
+    return providers
+
+
+def resolve_model_provider(model_id: str, provider_overrides: dict[str, str]) -> str:
+    if model_id in provider_overrides:
+        return provider_overrides[model_id]
+
+    matched_provider: str | None = None
+    matched_prefix_len = -1
+    for key, provider in provider_overrides.items():
+        if not key.endswith("/*"):
+            continue
+        prefix = key[:-1]  # keep trailing slash for strict namespace matching
+        if model_id.startswith(prefix) and len(prefix) > matched_prefix_len:
+            matched_provider = provider
+            matched_prefix_len = len(prefix)
+
+    if matched_provider is not None:
+        return matched_provider
+
+    if "*" in provider_overrides:
+        return provider_overrides["*"]
+
+    return DEFAULT_MODEL_PROVIDER
+
+
+def lookup_openai_benchmark_profile(model_id: str) -> dict[str, Any] | None:
+    cleaned = str(model_id).strip()
+    if not cleaned:
+        return None
+
+    candidates = [cleaned]
+    if cleaned.startswith("openai/"):
+        _, suffix = cleaned.split("/", 1)
+        if suffix:
+            candidates.append(suffix)
+    else:
+        candidates.append(f"openai/{cleaned}")
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        profile = OPENAI_BENCHMARK_MODEL_PROFILES.get(candidate)
+        if isinstance(profile, dict):
+            return copy.deepcopy(profile)
+    return None
+
+
 def build_model_variants(
     models: list[str],
     default_effort: str | None,
     per_model_efforts: dict[str, list[str]],
+    model_providers: dict[str, str],
 ) -> list[dict[str, Any]]:
     variants: list[dict[str, Any]] = []
     for model in models:
+        provider = resolve_model_provider(model, model_providers)
+        openai_profile = (
+            lookup_openai_benchmark_profile(model) if provider == "openai" else None
+        )
         if "/" in model:
             model_org, model_name = model.split("/", 1)
         else:
-            model_org, model_name = "unknown", model
+            model_org = "openai" if provider == "openai" else "unknown"
+            model_name = model
+        if openai_profile:
+            display_name = str(openai_profile.get("display_name", "")).strip()
+            if display_name:
+                model_name = display_name
+            if provider == "openai":
+                model_org = "openai"
 
         configured = per_model_efforts.get(model)
-        if configured is None:
-            efforts: list[str | None] = [default_effort]
+        profile_effort: str | None = None
+        if openai_profile:
+            request_overrides = openai_profile.get("request_overrides")
+            if isinstance(request_overrides, dict):
+                reasoning_cfg = request_overrides.get("reasoning")
+                if isinstance(reasoning_cfg, dict):
+                    profile_effort = normalize_reasoning_effort(
+                        reasoning_cfg.get("effort"),
+                        field_name=f"OpenAI profile reasoning effort for model {model}",
+                    )
+
+        if profile_effort is not None:
+            efforts: list[str | None] = [profile_effort]
+        elif configured is None:
+            efforts = [default_effort]
         elif configured:
             efforts = list(configured)
         else:
@@ -908,17 +1124,41 @@ def build_model_variants(
 
         for effort in efforts:
             reasoning_level = effort if effort is not None else "default"
-            model_row = f"{model_name}@reasoning={reasoning_level}"
+            if openai_profile and str(openai_profile.get("model_row", "")).strip():
+                model_row = str(openai_profile.get("model_row", "")).strip()
+            else:
+                model_row = f"{model_name}@reasoning={reasoning_level}"
             model_display = f"{model_org}/{model_row}"
+            request_model_id = model
+            request_overrides: dict[str, Any] = {}
+            if openai_profile:
+                request_model_candidate = str(
+                    openai_profile.get("request_model", "")
+                ).strip()
+                if request_model_candidate:
+                    request_model_id = request_model_candidate
+                raw_overrides = openai_profile.get("request_overrides")
+                if isinstance(raw_overrides, dict):
+                    request_overrides = copy.deepcopy(raw_overrides)
+
+            if effort is not None:
+                reasoning_override = request_overrides.get("reasoning")
+                if not isinstance(reasoning_override, dict):
+                    reasoning_override = {}
+                reasoning_override["effort"] = effort
+                request_overrides["reasoning"] = reasoning_override
             variants.append(
                 {
                     "model_id": model,
+                    "request_model_id": request_model_id,
                     "model_org": model_org,
                     "model_name": model_name,
                     "model_reasoning_level": reasoning_level,
                     "model_row": model_row,
                     "model_label": model_display,
+                    "model_provider": provider,
                     "response_reasoning_effort": effort,
+                    "request_overrides": request_overrides,
                 }
             )
     return variants
@@ -1376,15 +1616,29 @@ def _coerce_bool(value: Any) -> bool | None:
 
 def extract_response_usage_metrics(usage: Any) -> dict[str, Any]:
     usage_obj = usage if isinstance(usage, dict) else {}
+    prompt_tokens_raw = usage_obj.get("prompt_tokens")
+    if prompt_tokens_raw is None:
+        prompt_tokens_raw = usage_obj.get("input_tokens")
+    completion_tokens_raw = usage_obj.get("completion_tokens")
+    if completion_tokens_raw is None:
+        completion_tokens_raw = usage_obj.get("output_tokens")
     prompt_details = (
         usage_obj.get("prompt_tokens_details")
         if isinstance(usage_obj.get("prompt_tokens_details"), dict)
-        else {}
+        else (
+            usage_obj.get("input_tokens_details")
+            if isinstance(usage_obj.get("input_tokens_details"), dict)
+            else {}
+        )
     )
     completion_details = (
         usage_obj.get("completion_tokens_details")
         if isinstance(usage_obj.get("completion_tokens_details"), dict)
-        else {}
+        else (
+            usage_obj.get("output_tokens_details")
+            if isinstance(usage_obj.get("output_tokens_details"), dict)
+            else {}
+        )
     )
     cost_details = (
         usage_obj.get("cost_details")
@@ -1392,8 +1646,8 @@ def extract_response_usage_metrics(usage: Any) -> dict[str, Any]:
         else {}
     )
     return {
-        "response_prompt_tokens": _coerce_int(usage_obj.get("prompt_tokens")),
-        "response_completion_tokens": _coerce_int(usage_obj.get("completion_tokens")),
+        "response_prompt_tokens": _coerce_int(prompt_tokens_raw),
+        "response_completion_tokens": _coerce_int(completion_tokens_raw),
         "response_total_tokens": _coerce_int(usage_obj.get("total_tokens")),
         "response_reasoning_tokens": _coerce_int(
             completion_details.get("reasoning_tokens")
@@ -1626,6 +1880,7 @@ def write_collect_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> 
         "model_id",
         "model_org",
         "model_name",
+        "model_provider",
         "model_reasoning_level",
         "model_row",
         "response_reasoning_effort",
@@ -1668,6 +1923,9 @@ def write_collect_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> 
                     "model_id": row.get("model_id", ""),
                     "model_org": row.get("model_org", ""),
                     "model_name": row.get("model_name", ""),
+                    "model_provider": row.get(
+                        "model_provider", DEFAULT_MODEL_PROVIDER
+                    ),
                     "model_reasoning_level": row.get("model_reasoning_level", ""),
                     "model_row": row.get("model_row", ""),
                     "response_reasoning_effort": row.get(
@@ -1729,6 +1987,7 @@ def write_grade_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> No
         "model_id",
         "model_org",
         "model_name",
+        "model_provider",
         "model_reasoning_level",
         "model_row",
         "response_reasoning_effort",
@@ -1736,6 +1995,8 @@ def write_grade_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> No
         "question_id",
         "technique",
         "is_control",
+        "judge_model",
+        "judge_provider",
         "judge_score",
         "judge_justification",
         "source_response_error",
@@ -1754,6 +2015,9 @@ def write_grade_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> No
                     "model_id": row.get("model_id", ""),
                     "model_org": row.get("model_org", ""),
                     "model_name": row.get("model_name", ""),
+                    "model_provider": row.get(
+                        "model_provider", DEFAULT_MODEL_PROVIDER
+                    ),
                     "model_reasoning_level": row.get("model_reasoning_level", ""),
                     "model_row": row.get("model_row", ""),
                     "response_reasoning_effort": row.get(
@@ -1763,6 +2027,8 @@ def write_grade_review_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> No
                     "question_id": row.get("question_id", ""),
                     "technique": row.get("technique", ""),
                     "is_control": bool(row.get("is_control", False)),
+                    "judge_model": row.get("judge_model", ""),
+                    "judge_provider": row.get("judge_provider", DEFAULT_MODEL_PROVIDER),
                     "judge_score": row.get("judge_score", ""),
                     "judge_justification": row.get("judge_justification", ""),
                     "source_response_error": row.get("source_response_error", ""),
@@ -1836,7 +2102,7 @@ def normalize_message_content(content: Any) -> str:
     return str(content).strip()
 
 
-class OpenRouterAPIError(RuntimeError):
+class ProviderAPIError(RuntimeError):
     def __init__(
         self,
         message: str,
@@ -1849,6 +2115,14 @@ class OpenRouterAPIError(RuntimeError):
         self.status_code = status_code
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
+
+
+class OpenRouterAPIError(ProviderAPIError):
+    """Errors from OpenRouter chat/completions calls."""
+
+
+class OpenAIAPIError(ProviderAPIError):
+    """Errors from OpenAI Responses API calls."""
 
 
 class OpenRouterClient:
@@ -1942,14 +2216,194 @@ class OpenRouterClient:
         raise last_error
 
 
+def _openai_model_id(model: str) -> str:
+    cleaned = str(model).strip()
+    if cleaned.startswith("openai/"):
+        provider, remainder = cleaned.split("/", 1)
+        if provider == "openai" and remainder:
+            return remainder
+    return cleaned
+
+
+def _first_nonempty_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _openai_text_format_from_response_format(
+    response_format: dict[str, Any],
+) -> dict[str, Any]:
+    fmt_type = str(response_format.get("type", "")).strip().lower()
+    if fmt_type == "json_schema":
+        schema_obj = (
+            response_format.get("json_schema")
+            if isinstance(response_format.get("json_schema"), dict)
+            else {}
+        )
+        formatted: dict[str, Any] = {"type": "json_schema"}
+        name = str(schema_obj.get("name", "")).strip()
+        if name:
+            formatted["name"] = name
+        schema = schema_obj.get("schema")
+        if isinstance(schema, dict):
+            formatted["schema"] = schema
+        strict = schema_obj.get("strict")
+        if isinstance(strict, bool):
+            formatted["strict"] = strict
+        return formatted
+    if fmt_type == "json_object":
+        return {"type": "json_object"}
+    return {"type": "text"}
+
+
+class OpenAIResponsesClient:
+    def __init__(
+        self,
+        api_key: str,
+        timeout_seconds: int,
+        *,
+        project_id: str = "",
+        organization_id: str = "",
+    ) -> None:
+        if timeout_seconds < 1:
+            raise ValueError("timeout_seconds must be >= 1")
+        self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+        self.base_url = "https://api.openai.com/v1/responses"
+        self.project_id = str(project_id).strip()
+        self.organization_id = str(organization_id).strip()
+
+    def chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float | None,
+        max_tokens: int,
+        retries: int,
+        extra_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": _openai_model_id(model),
+            "input": messages,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens > 0:
+            payload["max_output_tokens"] = max_tokens
+
+        if extra_payload:
+            reasoning = extra_payload.get("reasoning")
+            if isinstance(reasoning, dict):
+                payload["reasoning"] = reasoning
+
+            response_format = extra_payload.get("response_format")
+            if isinstance(response_format, dict):
+                payload["text"] = {
+                    "format": _openai_text_format_from_response_format(response_format)
+                }
+
+            for key, value in extra_payload.items():
+                if key in {"reasoning", "response_format", "provider"}:
+                    continue
+                payload[key] = value
+
+        encoded = json.dumps(payload).encode("utf-8")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if self.project_id:
+            headers["OpenAI-Project"] = self.project_id
+        if self.organization_id:
+            headers["OpenAI-Organization"] = self.organization_id
+
+        if retries < 1:
+            raise ValueError("retries must be >= 1")
+
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            retry_after_header: str | None = None
+            retry_after_seconds: float | None = None
+            request = urllib.request.Request(
+                self.base_url,
+                data=encoded,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as resp:
+                    raw = resp.read().decode("utf-8")
+                parsed = json.loads(raw)
+                if not isinstance(parsed, dict):
+                    raise RuntimeError("OpenAI returned non-object JSON.")
+                return parsed
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                retry_after_header = exc.headers.get("Retry-After") if exc.headers else None
+                retry_after_seconds = parse_retry_after_seconds(retry_after_header)
+                retryable = is_retryable_http_status(exc.code)
+                last_error = OpenAIAPIError(
+                    f"HTTP {exc.code} from OpenAI Responses (attempt {attempt}/{retries})"
+                    f"{' [retryable]' if retryable else ' [non-retryable]'}: {detail}"
+                    + (
+                        f" (retry_after_seconds={retry_after_seconds})"
+                        if retry_after_seconds is not None
+                        else ""
+                    ),
+                    status_code=exc.code,
+                    retryable=retryable,
+                    retry_after_seconds=retry_after_seconds,
+                )
+                if not retryable:
+                    raise last_error from exc
+            except Exception as exc:  # pylint: disable=broad-except
+                last_error = RuntimeError(
+                    f"OpenAI Responses call failed (attempt {attempt}/{retries}): {exc}"
+                )
+
+            if attempt < retries:
+                time.sleep(compute_retry_delay_seconds(attempt, retry_after_header))
+
+        assert last_error is not None
+        raise last_error
+
+
 def extract_model_text(api_response: dict[str, Any]) -> str:
     if api_response.get("error"):
         err = api_response.get("error")
         raise RuntimeError(f"API returned error payload: {json.dumps(err, ensure_ascii=False)}")
 
+    output_items = api_response.get("output")
+    if isinstance(output_items, list) and output_items:
+        chunks: list[str] = []
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("type", "")) != "message":
+                continue
+            content_items = item.get("content")
+            if not isinstance(content_items, list):
+                continue
+            for content_item in content_items:
+                if not isinstance(content_item, dict):
+                    continue
+                if str(content_item.get("type", "")) != "output_text":
+                    continue
+                text = normalize_message_content(content_item.get("text", ""))
+                if text:
+                    chunks.append(text)
+        combined = "\n".join(chunks).strip()
+        if combined:
+            return combined
+
     choices = api_response.get("choices", [])
     if not choices or not isinstance(choices, list):
-        raise RuntimeError("API response missing choices array.")
+        raise RuntimeError("API response missing both output and choices content.")
     first_choice = choices[0] if choices else {}
     if not isinstance(first_choice, dict):
         raise RuntimeError("API response first choice is not an object.")
@@ -1960,6 +2414,28 @@ def extract_model_text(api_response: dict[str, Any]) -> str:
 
 
 def extract_message_refusal(api_response: dict[str, Any]) -> str:
+    output_items = api_response.get("output")
+    if isinstance(output_items, list) and output_items:
+        refusals: list[str] = []
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("type", "")) != "message":
+                continue
+            content_items = item.get("content")
+            if not isinstance(content_items, list):
+                continue
+            for content_item in content_items:
+                if not isinstance(content_item, dict):
+                    continue
+                if str(content_item.get("type", "")) != "refusal":
+                    continue
+                refusal = normalize_message_content(content_item.get("refusal", ""))
+                if refusal:
+                    refusals.append(refusal)
+        if refusals:
+            return "\n".join(refusals).strip()
+
     choices = api_response.get("choices", [])
     if not choices or not isinstance(choices, list):
         return ""
@@ -1973,6 +2449,21 @@ def extract_message_refusal(api_response: dict[str, Any]) -> str:
 
 
 def extract_finish_reason(api_response: dict[str, Any]) -> str | None:
+    status = api_response.get("status")
+    if status is not None:
+        status_text = str(status).strip().lower()
+        if status_text == "incomplete":
+            details = (
+                api_response.get("incomplete_details")
+                if isinstance(api_response.get("incomplete_details"), dict)
+                else {}
+            )
+            reason = details.get("reason")
+            if reason is not None:
+                return str(reason)
+        if status_text:
+            return status_text
+
     choices = api_response.get("choices", [])
     if not isinstance(choices, list) or not choices:
         return None
@@ -2004,6 +2495,7 @@ def build_collect_tasks(
                 variant.get("model_row", f"{model_name}@reasoning={model_reasoning_level}")
             )
             model_label = str(variant["model_label"])
+            model_provider = str(variant.get("model_provider", DEFAULT_MODEL_PROVIDER))
             effort = variant.get("response_reasoning_effort")
             for question in questions:
                 sample_id = build_sample_id(
@@ -2018,11 +2510,16 @@ def build_collect_tasks(
                         "run_index": run_index,
                         "model": model_label,
                         "model_id": model_id,
+                        "request_model_id": variant.get("request_model_id", model_id),
                         "model_org": model_org,
                         "model_name": model_name,
+                        "model_provider": model_provider,
                         "model_reasoning_level": model_reasoning_level,
                         "model_row": model_row,
                         "response_reasoning_effort": effort,
+                        "request_overrides": copy.deepcopy(
+                            variant.get("request_overrides", {})
+                        ),
                         "question": question,
                     }
                 )
@@ -2032,7 +2529,7 @@ def build_collect_tasks(
 def collect_one(
     task: dict[str, Any],
     *,
-    client: OpenRouterClient | None,
+    clients: dict[str, Any] | None,
     system_prompt: str,
     omit_system_prompt: bool,
     temperature: float | None,
@@ -2068,14 +2565,17 @@ def collect_one(
             f"@reasoning={model_reasoning_level}",
         )
     )
+    model_provider = str(task.get("model_provider", DEFAULT_MODEL_PROVIDER)).strip().lower()
 
     record: dict[str, Any] = {
         "sample_id": task["sample_id"],
         "run_index": task["run_index"],
         "model": task["model"],
         "model_id": task.get("model_id", task["model"]),
+        "request_model_id": task.get("request_model_id", task.get("model_id", task["model"])),
         "model_org": task.get("model_org", "unknown"),
         "model_name": task.get("model_name", task.get("model_id", task["model"])),
+        "model_provider": model_provider,
         "model_reasoning_level": model_reasoning_level,
         "model_row": model_row,
         "response_reasoning_effort": effort_value,
@@ -2120,27 +2620,55 @@ def collect_one(
                 "choices": [{"finish_reason": "stop"}],
             }
         else:
-            assert client is not None
+            if clients is None:
+                raise RuntimeError("No provider clients are configured.")
+            client = clients.get(model_provider)
+            if client is None:
+                raise RuntimeError(
+                    f"No client configured for model_provider={model_provider} "
+                    f"(model_id={task.get('model_id', task['model'])})."
+                )
             extra_payload: dict[str, Any] | None = None
             if effort_value is not None:
                 extra_payload = {
                     "reasoning": {"effort": effort_value},
-                    "provider": {"require_parameters": True},
                 }
+                if model_provider == "openrouter":
+                    extra_payload["provider"] = {"require_parameters": True}
+            request_overrides = task.get("request_overrides")
+            if isinstance(request_overrides, dict) and request_overrides:
+                if extra_payload is None:
+                    extra_payload = {}
+                extra_payload.update(copy.deepcopy(request_overrides))
+                if (
+                    effort_value is not None
+                    and model_provider == "openai"
+                ):
+                    merged_reasoning = extra_payload.get("reasoning")
+                    if not isinstance(merged_reasoning, dict):
+                        merged_reasoning = {}
+                    merged_reasoning["effort"] = effort_value
+                    extra_payload["reasoning"] = merged_reasoning
+                if model_provider == "openrouter":
+                    provider_override = extra_payload.get("provider")
+                    if not isinstance(provider_override, dict):
+                        provider_override = {}
+                    provider_override.setdefault("require_parameters", True)
+                    extra_payload["provider"] = provider_override
             empty_attempt = 0
             payload = {}
             effective_max_tokens = max_tokens
             while True:
                 try:
                     payload = client.chat(
-                        model=task.get("model_id", task["model"]),
+                        model=task.get("request_model_id", task.get("model_id", task["model"])),
                         messages=request_messages,
                         temperature=temperature,
                         max_tokens=effective_max_tokens,
                         retries=retries,
                         extra_payload=extra_payload,
                     )
-                except OpenRouterAPIError as exc:
+                except ProviderAPIError as exc:
                     # Some providers reject unbounded or overly-large token caps when
                     # account credits are low. Retry once with a smaller cap.
                     if (
@@ -2191,16 +2719,16 @@ def collect_one(
 
         record["response_text"] = response_text
         record["response_id"] = str(payload.get("id", ""))
-        record["response_created"] = payload.get("created")
+        record["response_created"] = payload.get("created", payload.get("created_at"))
         record["response_usage"] = payload.get("usage", {})
         record["response_finish_reason"] = extract_finish_reason(payload)
-        if record["response_finish_reason"] == "length":
+        if record["response_finish_reason"] in {"length", "max_output_tokens"}:
             record["warnings"].append("response_finish_reason=length (possible truncation)")
         if store_response_raw and record["response_raw"] is None:
             record["response_raw"] = payload
     except Exception as exc:  # pylint: disable=broad-except
         record["error"] = str(exc)
-        if isinstance(exc, OpenRouterAPIError):
+        if isinstance(exc, ProviderAPIError):
             status_code = exc.status_code
             record["error_http_status"] = status_code
             record["error_retryable"] = exc.retryable
@@ -2253,6 +2781,9 @@ def run_collect(args: argparse.Namespace) -> int:
     per_model_reasoning_efforts = parse_model_reasoning_efforts(
         args.model_reasoning_efforts
     )
+    model_providers = parse_model_providers(
+        args.model_providers, field_name="--model-providers"
+    )
     unknown_reasoning_models = set(per_model_reasoning_efforts.keys()) - set(models)
     if unknown_reasoning_models:
         if cli_option_was_provided(args, "model_reasoning_efforts"):
@@ -2269,7 +2800,7 @@ def run_collect(args: argparse.Namespace) -> int:
             flush=True,
         )
     model_variants = build_model_variants(
-        models, base_reasoning_effort, per_model_reasoning_efforts
+        models, base_reasoning_effort, per_model_reasoning_efforts, model_providers
     )
     omit_system_prompt = bool(args.omit_response_system_prompt) or not str(
         args.response_system_prompt
@@ -2329,6 +2860,10 @@ def run_collect(args: argparse.Namespace) -> int:
         for task in tasks
         if sample_id_from_row(task, context="Collect task list") not in checkpoint_ids
     ]
+    openai_project_id = _first_nonempty_env("OPENAI_PROJECT", "OPENAI_PROJECT_ID")
+    openai_organization_id = _first_nonempty_env(
+        "OPENAI_ORGANIZATION", "OPENAI_ORG", "OPENAI_ORG_ID"
+    )
 
     collection_meta = {
         "phase": "collect",
@@ -2352,6 +2887,9 @@ def run_collect(args: argparse.Namespace) -> int:
         "omit_response_system_prompt": omit_system_prompt,
         "response_reasoning_effort": base_reasoning_effort,
         "model_reasoning_efforts": per_model_reasoning_efforts,
+        "model_providers": model_providers,
+        "openai_project_header": openai_project_id or None,
+        "openai_organization_header": openai_organization_id or None,
         "store_request_messages": bool(args.store_request_messages),
         "store_response_raw": bool(args.store_response_raw),
         "retries": args.retries,
@@ -2377,12 +2915,37 @@ def run_collect(args: argparse.Namespace) -> int:
         collect_events_path.write_text("", encoding="utf-8")
     elif not collect_events_path.exists():
         collect_events_path.write_text("", encoding="utf-8")
-    client: OpenRouterClient | None = None
+    clients: dict[str, Any] | None = None
     if not args.dry_run:
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required unless --dry-run is set.")
-        client = OpenRouterClient(api_key=api_key, timeout_seconds=args.timeout_seconds)
+        providers_in_use = {
+            str(variant.get("model_provider", DEFAULT_MODEL_PROVIDER)).strip().lower()
+            for variant in model_variants
+        }
+        clients = {}
+        if "openrouter" in providers_in_use:
+            openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+            if not openrouter_key:
+                raise RuntimeError(
+                    "OPENROUTER_API_KEY is required for models routed to openrouter "
+                    "unless --dry-run is set."
+                )
+            clients["openrouter"] = OpenRouterClient(
+                api_key=openrouter_key,
+                timeout_seconds=args.timeout_seconds,
+            )
+        if "openai" in providers_in_use:
+            openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+            if not openai_key:
+                raise RuntimeError(
+                    "OPENAI_API_KEY is required for models routed to openai "
+                    "unless --dry-run is set."
+                )
+            clients["openai"] = OpenAIResponsesClient(
+                api_key=openai_key,
+                timeout_seconds=args.timeout_seconds,
+                project_id=openai_project_id,
+                organization_id=openai_organization_id,
+            )
 
     started = time.perf_counter()
     records: list[dict[str, Any]] = list(checkpoint_records)
@@ -2472,19 +3035,19 @@ def run_collect(args: argparse.Namespace) -> int:
                     model = str(task.get("model", ""))
                     model_in_flight[model] = model_in_flight.get(model, 0) + 1
                     future = pool.submit(
-                    collect_one,
-                    task,
-                    client=client,
-                    system_prompt=args.response_system_prompt,
-                    omit_system_prompt=omit_system_prompt,
-                    temperature=args.temperature,
-                    max_tokens=args.max_tokens,
-                    empty_response_retries=args.empty_response_retries,
-                    retries=args.retries,
-                    pause_seconds=args.pause_seconds,
-                    dry_run=args.dry_run,
-                    store_request_messages=bool(args.store_request_messages),
-                    store_response_raw=bool(args.store_response_raw),
+                        collect_one,
+                        task,
+                        clients=clients,
+                        system_prompt=args.response_system_prompt,
+                        omit_system_prompt=omit_system_prompt,
+                        temperature=args.temperature,
+                        max_tokens=args.max_tokens,
+                        empty_response_retries=args.empty_response_retries,
+                        retries=args.retries,
+                        pause_seconds=args.pause_seconds,
+                        dry_run=args.dry_run,
+                        store_request_messages=bool(args.store_request_messages),
+                        store_response_raw=bool(args.store_response_raw),
                     )
                     in_flight[future] = (task, next_attempt)
 
@@ -2528,9 +3091,15 @@ def run_collect(args: argparse.Namespace) -> int:
                                 "run_index": task["run_index"],
                                 "model": task["model"],
                                 "model_id": task.get("model_id", task["model"]),
+                                "request_model_id": task.get(
+                                    "request_model_id", task.get("model_id", task["model"])
+                                ),
                                 "model_org": task.get("model_org", "unknown"),
                                 "model_name": task.get(
                                     "model_name", task.get("model_id", task["model"])
+                                ),
+                                "model_provider": task.get(
+                                    "model_provider", DEFAULT_MODEL_PROVIDER
                                 ),
                                 "model_reasoning_level": task.get(
                                     "model_reasoning_level", "default"
@@ -2828,8 +3397,9 @@ def pick_judge_response_format(judge_model: str, *, allow_score_3: bool = True) 
 def grade_one(
     response_row: dict[str, Any],
     *,
-    client: OpenRouterClient | None,
+    clients: dict[str, Any] | None,
     judge_model: str,
+    judge_provider: str,
     judge_system_prompt: str,
     judge_user_template: str,
     judge_user_template_control: str,
@@ -2855,6 +3425,7 @@ def grade_one(
         "model_name": response_row.get(
             "model_name", response_row.get("model_id", response_row.get("model"))
         ),
+        "model_provider": response_row.get("model_provider", DEFAULT_MODEL_PROVIDER),
         "model_reasoning_level": response_row.get("model_reasoning_level", "default"),
         "model_row": response_row.get("model_row", response_row.get("model")),
         "response_reasoning_effort": response_row.get("response_reasoning_effort"),
@@ -2870,6 +3441,7 @@ def grade_one(
         "response_text": response_row.get("response_text", ""),
         "source_response_error": response_row.get("error", ""),
         "judge_model": judge_model,
+        "judge_provider": judge_provider,
         "judge_score": None,
         "judge_justification": "",
         "judge_raw_text": "",
@@ -2936,15 +3508,23 @@ def grade_one(
                 grade_row["judge_response_created"] = None
                 grade_row["judge_finish_reason"] = "stop"
             else:
-                assert client is not None
+                if clients is None:
+                    raise RuntimeError("No provider clients are configured.")
+                client = clients.get(judge_provider)
+                if client is None:
+                    raise RuntimeError(
+                        f"No client configured for judge_provider={judge_provider} "
+                        f"(judge_model={judge_model})."
+                    )
                 judge_response_format = pick_judge_response_format(
                     judge_model,
                     allow_score_3=bool(grade_row["is_control"]),
                 )
                 extra_payload: dict[str, Any] = {
                     "response_format": judge_response_format,
-                    "provider": {"require_parameters": True},
                 }
+                if judge_provider == "openrouter":
+                    extra_payload["provider"] = {"require_parameters": True}
                 if judge_reasoning_effort != "off":
                     extra_payload["reasoning"] = {"effort": judge_reasoning_effort}
                 while True:
@@ -2961,7 +3541,7 @@ def grade_one(
                             extra_payload=extra_payload,
                         )
                         break
-                    except OpenRouterAPIError as exc:
+                    except ProviderAPIError as exc:
                         if (
                             exc.status_code == 402
                             and "fewer max_tokens" in str(exc).lower()
@@ -2984,9 +3564,11 @@ def grade_one(
                 if store_judge_response_raw:
                     grade_row["judge_response_raw"] = api_payload
                 grade_row["judge_response_id"] = str(api_payload.get("id", ""))
-                grade_row["judge_response_created"] = api_payload.get("created")
+                grade_row["judge_response_created"] = api_payload.get(
+                    "created", api_payload.get("created_at")
+                )
                 grade_row["judge_finish_reason"] = extract_finish_reason(api_payload)
-                if grade_row["judge_finish_reason"] == "length":
+                if grade_row["judge_finish_reason"] in {"length", "max_output_tokens"}:
                     grade_row["judge_warnings"].append(
                         "judge_finish_reason=length (possible truncation)"
                     )
@@ -3289,6 +3871,10 @@ def run_grade(args: argparse.Namespace) -> int:
         raise ValueError("--responses-file is required (or set grade.responses_file in config).")
     if not args.judge_model:
         raise ValueError("--judge-model is required (or set grade.judge_model in config).")
+    model_providers = parse_model_providers(
+        args.model_providers, field_name="--model-providers"
+    )
+    judge_provider = resolve_model_provider(args.judge_model, model_providers)
 
     responses_file = pathlib.Path(args.responses_file)
     if not responses_file.exists():
@@ -3376,6 +3962,10 @@ def run_grade(args: argparse.Namespace) -> int:
         for row in rows
         if sample_id_from_row(row, context="Grade source rows") not in checkpoint_ids
     ]
+    openai_project_id = _first_nonempty_env("OPENAI_PROJECT", "OPENAI_PROJECT_ID")
+    openai_organization_id = _first_nonempty_env(
+        "OPENAI_ORGANIZATION", "OPENAI_ORG", "OPENAI_ORG_ID"
+    )
 
     grade_meta = {
         "phase": "grade",
@@ -3386,6 +3976,10 @@ def run_grade(args: argparse.Namespace) -> int:
         "responses_file": str(responses_file.resolve()),
         "response_record_count": len(rows),
         "judge_model": args.judge_model,
+        "judge_provider": judge_provider,
+        "model_providers": model_providers,
+        "openai_project_header": openai_project_id or None,
+        "openai_organization_header": openai_organization_id or None,
         "judge_system_prompt": judge_system,
         "judge_user_template_file": args.judge_user_template_file or None,
         "judge_response_format": pick_judge_response_format(
@@ -3424,12 +4018,33 @@ def run_grade(args: argparse.Namespace) -> int:
         },
     )
 
-    client: OpenRouterClient | None = None
+    clients: dict[str, Any] | None = None
     if not args.dry_run:
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required unless --dry-run is set.")
-        client = OpenRouterClient(api_key=api_key, timeout_seconds=args.timeout_seconds)
+        clients = {}
+        if judge_provider == "openrouter":
+            openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+            if not openrouter_key:
+                raise RuntimeError(
+                    "OPENROUTER_API_KEY is required for judge models routed to openrouter "
+                    "unless --dry-run is set."
+                )
+            clients["openrouter"] = OpenRouterClient(
+                api_key=openrouter_key,
+                timeout_seconds=args.timeout_seconds,
+            )
+        elif judge_provider == "openai":
+            openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+            if not openai_key:
+                raise RuntimeError(
+                    "OPENAI_API_KEY is required for judge models routed to openai "
+                    "unless --dry-run is set."
+                )
+            clients["openai"] = OpenAIResponsesClient(
+                api_key=openai_key,
+                timeout_seconds=args.timeout_seconds,
+                project_id=openai_project_id,
+                organization_id=openai_organization_id,
+            )
 
     started = time.perf_counter()
     grade_rows: list[dict[str, Any]] = list(checkpoint_rows)
@@ -3445,8 +4060,9 @@ def run_grade(args: argparse.Namespace) -> int:
                 future = pool.submit(
                     grade_one,
                     row,
-                    client=client,
+                    clients=clients,
                     judge_model=args.judge_model,
+                    judge_provider=judge_provider,
                     judge_system_prompt=judge_system,
                     judge_user_template=judge_template,
                     judge_user_template_control=judge_template_control,
@@ -3489,6 +4105,9 @@ def run_grade(args: argparse.Namespace) -> int:
                                 "model_name",
                                 source_row.get("model_id", source_row.get("model")),
                             ),
+                            "model_provider": source_row.get(
+                                "model_provider", DEFAULT_MODEL_PROVIDER
+                            ),
                             "model_reasoning_level": source_row.get(
                                 "model_reasoning_level", "default"
                             ),
@@ -3508,6 +4127,7 @@ def run_grade(args: argparse.Namespace) -> int:
                             "response_text": source_row.get("response_text", ""),
                             "source_response_error": source_row.get("error", ""),
                             "judge_model": args.judge_model,
+                            "judge_provider": judge_provider,
                             "judge_score": None,
                             "judge_justification": "",
                             "judge_raw_text": "",
@@ -3619,6 +4239,7 @@ def _build_grade_args(
         command="grade",
         responses_file=str(responses_file),
         judge_model=judge_model,
+        model_providers=panel_args.model_providers,
         config=panel_args.config,
         output_dir=str(output_dir),
         grade_id=grade_id,
@@ -3960,6 +4581,15 @@ def run_grade_panel(args: argparse.Namespace) -> int:
             args.judge_models = ",".join(str(item) for item in configured_judge_models)
         elif isinstance(configured_judge_models, str):
             args.judge_models = configured_judge_models
+
+    if (
+        args.model_providers == GRADE_PANEL_DEFAULTS["model_providers"]
+        and not cli_option_was_provided(args, "model_providers")
+        and isinstance(grade_config, dict)
+    ):
+        configured_model_providers = grade_config.get("model_providers")
+        if isinstance(configured_model_providers, (dict, str)):
+            args.model_providers = configured_model_providers
 
     if (
         args.parallelism == GRADE_PANEL_DEFAULTS["parallelism"]

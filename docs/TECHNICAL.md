@@ -143,6 +143,7 @@ Publishing also exports:
 - Main config (v2): `config.v2.json`
 - Question set (v1): `questions.json`
 - Question set (v2): `questions.v2.json` (generated from `drafts/new-questions.md` via `scripts/build_questions_v2_from_draft.py`)
+- Provider routing is controlled by `collect.model_providers` and `grade.model_providers` (`openrouter` or `openai`; supports `*` and `<org>/*` patterns, e.g. `{"*":"openrouter","gpt-5.3":"openai"}`).
 - Configs include `openai/gpt-5.2-codex` and `openai/gpt-5.3-codex` with reasoning sweeps (`low`, `high`, `xhigh`).
 - Config model lists are aligned to `data/model_metadata/tested_models_inventory.csv` run history, including legacy OpenAI IDs (`openai/gpt-4.1`, `openai/gpt-4o*`, `openai/o3`).
 
@@ -193,3 +194,6 @@ Optional:
 
 - `OPENROUTER_REFERER`
 - `OPENROUTER_APP_NAME`
+- `OPENAI_API_KEY` (required when any model is routed to provider `openai`)
+- `OPENAI_PROJECT` or `OPENAI_PROJECT_ID` (optional OpenAI project header override)
+- `OPENAI_ORGANIZATION` or `OPENAI_ORG` or `OPENAI_ORG_ID` (optional OpenAI org header override)

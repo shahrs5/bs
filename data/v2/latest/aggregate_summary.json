@@ -423,6 +423,41 @@
       "run_average_stddev": null
     },
     {
+      "model": "openai/gpt-5.4@reasoning=none",
+      "count": 100,
+      "scored_count": 100,
+      "nonsense_count": 100,
+      "control_count": 0,
+      "score_0": 16,
+      "score_1": 36,
+      "score_2": 48,
+      "score_3": 0,
+      "avg_score": 1.25,
+      "detection_rate_score_2": 0.48,
+      "full_engagement_rate_score_0": 0.16,
+      "control_correct_rate_score_3": null,
+      "error_count": 0,
+      "technique_breakdown": {
+        "authoritative_framing": 1.2963,
+        "confident_extrapolation": 1.9167,
+        "cross_domain_stitching": 1.0,
+        "fabricated_authority": 1.5152,
+        "false_granularity": 1.4445,
+        "misapplied_mechanism": 1.4359,
+        "nested_nonsense": 1.0952,
+        "plausible_nonexistent_framework": 0.9583,
+        "reified_metaphor": 2.0,
+        "specificity_trap": 0.5,
+        "sunk_cost_framing": 1.0,
+        "temporal_category_error": 1.6111,
+        "wrong_unit_of_analysis": 1.4
+      },
+      "run_average_scores": {
+        "1": 1.25
+      },
+      "run_average_stddev": null
+    },
+    {
       "model": "moonshotai/kimi-k2.5@reasoning=none",
       "count": 100,
       "scored_count": 100,
@@ -454,6 +489,41 @@
       },
       "run_average_scores": {
         "1": 1.2267
+      },
+      "run_average_stddev": null
+    },
+    {
+      "model": "openai/gpt-5.4@reasoning=xhigh",
+      "count": 100,
+      "scored_count": 100,
+      "nonsense_count": 100,
+      "control_count": 0,
+      "score_0": 20,
+      "score_1": 38,
+      "score_2": 42,
+      "score_3": 0,
+      "avg_score": 1.1667,
+      "detection_rate_score_2": 0.42,
+      "full_engagement_rate_score_0": 0.2,
+      "control_correct_rate_score_3": null,
+      "error_count": 0,
+      "technique_breakdown": {
+        "authoritative_framing": 1.0741,
+        "confident_extrapolation": 1.8333,
+        "cross_domain_stitching": 0.6667,
+        "fabricated_authority": 1.4242,
+        "false_granularity": 1.1111,
+        "misapplied_mechanism": 1.2564,
+        "nested_nonsense": 1.3333,
+        "plausible_nonexistent_framework": 1.0208,
+        "reified_metaphor": 1.8889,
+        "specificity_trap": 0.4583,
+        "sunk_cost_framing": 0.9524,
+        "temporal_category_error": 1.6667,
+        "wrong_unit_of_analysis": 1.2
+      },
+      "run_average_scores": {
+        "1": 1.1667
       },
       "run_average_stddev": null
     },
@@ -2633,29 +2703,29 @@
       {
         "judge_i": 1,
         "judge_j": 2,
-        "compared_rows": 7500,
-        "agreements": 6141,
-        "agreement_rate": 0.8188
+        "compared_rows": 7700,
+        "agreements": 6275,
+        "agreement_rate": 0.814935
       },
       {
         "judge_i": 1,
         "judge_j": 3,
-        "compared_rows": 7500,
-        "agreements": 6053,
-        "agreement_rate": 0.807067
+        "compared_rows": 7700,
+        "agreements": 6180,
+        "agreement_rate": 0.802597
       },
       {
         "judge_i": 2,
         "judge_j": 3,
-        "compared_rows": 7500,
-        "agreements": 5842,
-        "agreement_rate": 0.778933
+        "compared_rows": 7700,
+        "agreements": 5968,
+        "agreement_rate": 0.775065
       }
     ],
-    "average_pairwise_agreement": 0.8016,
-    "krippendorff_alpha_ordinal": 0.79975
+    "average_pairwise_agreement": 0.797532,
+    "krippendorff_alpha_ordinal": 0.796124
   },
-  "total_records": 7500,
+  "total_records": 7700,
   "total_error_records": 0,
-  "total_scored_records": 7500
+  "total_scored_records": 7700
 }

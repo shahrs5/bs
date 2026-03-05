@@ -6,6 +6,9 @@
       "google/gemini-3.1-flash-lite-preview"
     ],
     "models_file": "",
+    "model_providers": {
+      "*": "openrouter"
+    },
     "num_runs": 1,
     "parallelism": 12,
     "techniques": "cross_domain_concept_stitching,inverted_nonexistent_dependency,false_granularity,misapplied_mechanism,reified_metaphor,plausible_nonexistent_framework,wrong_unit_of_analysis,temporal_category_error,causal_chimera,authoritative_framing_of_nothing",
@@ -13,7 +16,7 @@
     "omit_response_system_prompt": true,
     "response_reasoning_effort": "off",
     "store_request_messages": false,
-    "store_response_raw": false,
+    "store_response_raw": true,
     "model_reasoning_efforts": {},
     "shuffle_tasks": true,
     "max_inflight_per_model": 2,
@@ -26,6 +29,9 @@
   },
   "grade": {
     "judge_model": "anthropic/claude-sonnet-4.6",
+    "model_providers": {
+      "*": "openrouter"
+    },
     "judge_models": [
       "anthropic/claude-sonnet-4.6",
       "openai/gpt-5.2",
