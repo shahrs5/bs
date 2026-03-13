@@ -65,11 +65,14 @@ MODEL_PROVIDER_ALIASES: dict[str, str] = {
     "openrouter": "openrouter",
     "or": "openrouter",
     "openai": "openai",
+    "lmstudio": "lmstudio",
+    "lm-studio": "lmstudio",
 }
 
 MODEL_PROVIDER_VALUES: tuple[str, ...] = (
     "openrouter",
     "openai",
+    "lmstudio",
 )
 
 DEFAULT_MODEL_PROVIDER = "openrouter"
@@ -2126,12 +2129,15 @@ class OpenAIAPIError(ProviderAPIError):
 
 
 class OpenRouterClient:
-    def __init__(self, api_key: str, timeout_seconds: int) -> None:
+    def __init__(self, api_key: str, timeout_seconds: int, base_url: str | None = None) -> None:
         if timeout_seconds < 1:
             raise ValueError("timeout_seconds must be >= 1")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.base_url = base_url or os.getenv(
+            "OPENROUTER_BASE_URL",
+            "https://openrouter.ai/api/v1/chat/completions",
+        )
         self.referer = os.getenv("OPENROUTER_REFERER", "")
         self.app_name = os.getenv("OPENROUTER_APP_NAME", "bullshit-benchmark")
 
@@ -2946,6 +2952,15 @@ def run_collect(args: argparse.Namespace) -> int:
                 project_id=openai_project_id,
                 organization_id=openai_organization_id,
             )
+        if "lmstudio" in providers_in_use:
+            lmstudio_url = os.getenv(
+                "LMSTUDIO_BASE_URL", "http://localhost:1234/v1/chat/completions"
+            )
+            clients["lmstudio"] = OpenRouterClient(
+                api_key="lm-studio",
+                timeout_seconds=args.timeout_seconds,
+                base_url=lmstudio_url,
+            )
 
     started = time.perf_counter()
     records: list[dict[str, Any]] = list(checkpoint_records)
@@ -3384,10 +3399,10 @@ def parse_judge_output(text: str) -> tuple[int, str, str]:
     return score, justification.strip(), parse_mode
 
 
-def pick_judge_response_format(judge_model: str, *, allow_score_3: bool = True) -> dict[str, Any]:
-    # Google providers currently reject the strict json_schema shape we use for
-    # other judges. Use json_object mode and keep strict parsing on our side.
-    if judge_model.startswith("google/"):
+def pick_judge_response_format(judge_model: str, *, allow_score_3: bool = True, judge_provider: str = "") -> dict[str, Any]:
+    # Google providers and LM Studio reject the strict json_schema shape we use
+    # for other judges. Use json_object mode and keep strict parsing on our side.
+    if judge_model.startswith("google/") or judge_provider == "lmstudio":
         return JUDGE_RESPONSE_FORMAT_GOOGLE
     if not allow_score_3:
         return JUDGE_RESPONSE_FORMAT_NO_CONTROL
@@ -3516,13 +3531,14 @@ def grade_one(
                         f"No client configured for judge_provider={judge_provider} "
                         f"(judge_model={judge_model})."
                     )
-                judge_response_format = pick_judge_response_format(
-                    judge_model,
-                    allow_score_3=bool(grade_row["is_control"]),
-                )
-                extra_payload: dict[str, Any] = {
-                    "response_format": judge_response_format,
-                }
+                extra_payload: dict[str, Any] = {}
+                if judge_provider != "lmstudio":
+                    judge_response_format = pick_judge_response_format(
+                        judge_model,
+                        allow_score_3=bool(grade_row["is_control"]),
+                        judge_provider=judge_provider,
+                    )
+                    extra_payload["response_format"] = judge_response_format
                 if judge_provider == "openrouter":
                     extra_payload["provider"] = {"require_parameters": True}
                 if judge_reasoning_effort != "off":
@@ -4044,6 +4060,15 @@ def run_grade(args: argparse.Namespace) -> int:
                 timeout_seconds=args.timeout_seconds,
                 project_id=openai_project_id,
                 organization_id=openai_organization_id,
+            )
+        elif judge_provider == "lmstudio":
+            lmstudio_url = os.getenv(
+                "LMSTUDIO_BASE_URL", "http://localhost:1234/v1/chat/completions"
+            )
+            clients["lmstudio"] = OpenRouterClient(
+                api_key="lm-studio",
+                timeout_seconds=args.timeout_seconds,
+                base_url=lmstudio_url,
             )
 
     started = time.perf_counter()

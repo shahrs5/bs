@@ -1,0 +1,69 @@
+{
+  "phase": "collect",
+  "run_id": "20260306_130323",
+  "timestamp_utc": "2026-03-06T13:03:23.946087+00:00",
+  "resumed": false,
+  "resumed_completed_rows": 0,
+  "questions_path": "C:\\Users\\Shaheer\\Documents\\Projects\\bullshit-benchmark\\questions.json",
+  "question_count": 1,
+  "models": [
+    "qwen/qwen3.5-35b-a3b"
+  ],
+  "model_variants": [
+    {
+      "model_id": "qwen/qwen3.5-35b-a3b",
+      "request_model_id": "qwen/qwen3.5-35b-a3b",
+      "model_org": "qwen",
+      "model_name": "qwen3.5-35b-a3b",
+      "model_reasoning_level": "default",
+      "model_row": "qwen3.5-35b-a3b@reasoning=default",
+      "model_label": "qwen/qwen3.5-35b-a3b@reasoning=default",
+      "model_provider": "openrouter",
+      "response_reasoning_effort": null,
+      "request_overrides": {}
+    }
+  ],
+  "num_runs": 1,
+  "task_count": 1,
+  "parallelism": 1,
+  "max_inflight_per_model": 0,
+  "temperature": null,
+  "max_tokens": 0,
+  "response_system_prompt": null,
+  "omit_response_system_prompt": true,
+  "response_reasoning_effort": null,
+  "model_reasoning_efforts": {},
+  "model_providers": {
+    "*": "openrouter"
+  },
+  "openai_project_header": null,
+  "openai_organization_header": null,
+  "store_request_messages": false,
+  "store_response_raw": true,
+  "retries": 3,
+  "timeout_seconds": 120,
+  "techniques_filter": [
+    "cross_domain_concept_stitching",
+    "inverted_nonexistent_dependency",
+    "false_granularity",
+    "misapplied_mechanism",
+    "reified_metaphor",
+    "plausible_nonexistent_framework",
+    "wrong_unit_of_analysis",
+    "temporal_category_error",
+    "causal_chimera",
+    "authoritative_framing_of_nothing"
+  ],
+  "shuffle_tasks": true,
+  "seed": 42,
+  "rate_limit_requeue": true,
+  "rate_limit_cooldown_seconds": 20.0,
+  "rate_limit_cooldown_max_seconds": 300.0,
+  "rate_limit_cooldown_jitter_seconds": 1.0,
+  "rate_limit_max_attempts": 12,
+  "checkpoint_fsync_every": 20,
+  "dry_run": false,
+  "stateless_request": true,
+  "fail_on_error": true,
+  "config_path": "C:\\Users\\Shaheer\\Documents\\Projects\\bullshit-benchmark\\config-lmstudio.json"
+}
